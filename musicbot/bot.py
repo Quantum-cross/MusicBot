@@ -463,6 +463,7 @@ class MusicBot(discord.Client):
         if not player.playlist.entries and self.config.auto_playlist:
             await self.my_update_now_playing_message(player, entry)
             await self.begin_voting(player)
+            await self.my_update_now_playing_message(player, entry)
         player.skip_state.reset()
 
         # This is the one event where its ok to serialize autoplaylist entries
@@ -472,10 +473,10 @@ class MusicBot(discord.Client):
             await self.write_current_song(player.voice_client.channel.guild, entry)
 
     async def my_update_now_playing_message(self, player, entry):
+        vchannel = player.voice_client.channel
         channel = entry.meta.get('channel', None)
-        author = entry.meta.get('author', None)
 
-        if channel and author:
+        if channel:
             last_np_msg = self.server_specific_data[channel.guild]['last_np_msg']
             if last_np_msg and last_np_msg.channel == channel:
 
@@ -486,20 +487,15 @@ class MusicBot(discord.Client):
                     break  # This is probably redundant
             from pprint import pprint
             pprint(vars(player))
-            if self.config.now_playing_mentions and author:
-                newmsg = '%s - your song **%s** is now playing in %s!' % (
-                    entry.meta['author'].mention, player.current_entry.title, player.voice_client.channel.name)
-            else:
-                song_total = str(timedelta(seconds=entry.duration)).lstrip('0').lstrip(':')
-                newmsg = "Now Playing: **{title}** `[{total}]`\n\N{WHITE RIGHT POINTING BACKHAND INDEX} <{url}>".format(
-                    title=player.current_entry.title,
-                    url=entry.url,
-                    total = song_total
-                )
-                #newmsg = 'Now playing in %s: **%s** (%ss)' % (
-                    #player.voice_client.channel.name, entry.title, song_total)
+            song_total = str(timedelta(seconds=entry.duration)).lstrip('0').lstrip(':')
+            newmsg = "Now Playing: **{title}** `[{total}]`\n\N{WHITE RIGHT POINTING BACKHAND INDEX} <{url}>".format(
+                title=player.current_entry.title,
+                url=entry.url,
+                total = song_total
+            )
 
             if self.is_voting:
+                log.debug("Voting, so adding to np message")
                 reactions = []
                 for n in range(5):
                     reactions.append(u"%d\u20E3" % (n+1))
@@ -507,19 +503,6 @@ class MusicBot(discord.Client):
                 for n, song_info in enumerate(self.voting_songs):
                     vote_msg += "%s: %s\n"% (reactions[n], song_info.get('title', 'Untitled'))
                 newmsg += vote_msg
-
-            author_perms = self.permissions.for_user(author)
-
-            if author not in player.voice_client.channel.members and author_perms.skip_when_absent:
-                newmsg = 'Skipping next song in `%s`: `%s` added by `%s` as queuer not in voice' % (
-                    player.voice_client.channel.name, entry.title, entry.meta['author'].name)
-                player.skip()
-            elif self.config.now_playing_mentions:
-                newmsg = '%s - your song `%s` is now playing in `%s`!' % (
-                    entry.meta['author'].mention, entry.title, player.voice_client.channel.name)
-            else:
-                newmsg = 'Now playing in `%s`: `%s` added by `%s`' % (
-                    player.voice_client.channel.name, entry.title, entry.meta['author'].name)
 
             if self.server_specific_data[channel.guild]['last_np_msg']:
                 self.server_specific_data[channel.guild]['last_np_msg'] = await self.safe_edit_message(last_np_msg, newmsg, send_if_fail=True)
@@ -531,14 +514,18 @@ class MusicBot(discord.Client):
                 for n in range(5):
                     reactions.append(u"%d\u20E3" % (n+1))
                 for r in reactions:
-                    await self.add_reaction(self.server_specific_data[channel.server]['last_np_msg'], r)
+                    #await self.add_reaction(self.server_specific_data[channel.guild]['last_np_msg'], r)
+                    await self.server_specific_data[channel.guild]['last_np_msg'].add_reaction(r)
+        else:
+            log.debug("Error with np update")
+            log.debug(channel)
 
     async def on_reaction_add(self, reaction, user):
         reactions = {}
         for n in range(5):
             reactions[u"%d\u20E3" % (n+1)] = n+1
-        server = reaction.message.server
-        np_msg = self.server_specific_data[server]['last_np_msg']
+        guild = reaction.message.channel.guild
+        np_msg = self.server_specific_data[guild]['last_np_msg']
         if (reaction.message.id == np_msg.id and
             reaction.emoji in reactions):
             if user.id is np_msg.author.id:
@@ -563,8 +550,8 @@ class MusicBot(discord.Client):
         reactions = {}
         for n in range(5):
             reactions[u"%d\u20E3" % (n+1)] = n+1
-        server = reaction.message.server
-        np_msg = self.server_specific_data[server]['last_np_msg']
+        guild = reaction.message.channel.guild
+        np_msg = self.server_specific_data[guild]['last_np_msg']
         if (reaction.message.id == np_msg.id and
             reaction.emoji in reactions):
             self.votes.pop(user.id, None)
@@ -585,8 +572,8 @@ class MusicBot(discord.Client):
         await self.update_now_playing_status()
 
     async def get_winning_vote(self, player):
-        channel = player.voice_client.channel
-        np_msg = self.server_specific_data[channel.server]['last_np_msg']
+        guild = player.voice_client.channel.guild
+        np_msg = self.server_specific_data[guild]['last_np_msg']
         reactions = {}
         for n in range(5):
             reactions[u"%d\u20E3" % (n+1)] = n+1
@@ -1943,11 +1930,10 @@ class MusicBot(discord.Client):
             return Response(self.str.get('cmd-search-none', "No videos found."), delete_after=30)
 
         def check(m):
-            return (
-                m.content.lower()[0] is 'p' or
-                # hardcoded function name weeee
-                m.content.lower().startswith('{}{}'.format(self.config.command_prefix, 'search')) or
-                m.content.lower().startswith('exit'))
+            return ((m.author == message.author and m.channel == message.channel) and 
+                    (m.content.lower()[0] is 'p' or
+                     m.content.lower().startswith('{}{}'.format(self.config.command_prefix, 'search')) or
+                     m.content.lower().startswith('exit')) )
 
         results = "Please select a track with p#:\n"
 
@@ -1955,14 +1941,15 @@ class MusicBot(discord.Client):
             time_str = str(datetime.timedelta(seconds=e['duration']))
             results += "%d: **%s** (%s)\n" % (n+1, e['title'], time_str) 
         result_message = await self.safe_send_message(channel, results)
-        response_message = await self.wait_for_message(30, author=author, channel=channel, check=check)
-
-        if not response_message:
+        try:
+            response_message = await self.wait_for('message', check=check, timeout=30.0)
+        except asyncio.TimeoutError:
             await self.safe_delete_message(result_message)
             return Response("Ok nevermind.", delete_after=30)
+        #response_message = await self.wait_for_message(30, author=author, channel=channel, check=check)
 
         # They started a new search query so lets clean up and bugger off
-        elif response_message.content.startswith(self.config.command_prefix) or \
+        if response_message.content.startswith(self.config.command_prefix) or \
                 response_message.content.lower().startswith('exit'):
 
             await self.safe_delete_message(result_message)
@@ -2195,7 +2182,7 @@ class MusicBot(discord.Client):
         player.playlist.shufflemode(False)
         await self.send_message(channel, "Shuffle mode is OFF!")
 
-    async def cmd_clear(self, player, author):
+    async def cmd_clear(self, channel, player, author):
         """
         Usage:
             {command_prefix}clear
@@ -2484,8 +2471,6 @@ class MusicBot(discord.Client):
         message = '\n'.join(lines)
         return Response(message, delete_after=30)
 
-    async def cmd_q(self, channel, player):
-        return await self.cmd_queue(channel, player)
 
     async def cmd_clean(self, message, channel, guild, author, search_range=50):
         """
