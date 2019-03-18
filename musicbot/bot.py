@@ -475,16 +475,17 @@ class MusicBot(discord.Client):
     async def my_update_now_playing_message(self, player, entry):
         vchannel = player.voice_client.channel
         channel = entry.meta.get('channel', None)
+        guild = channel.guild
 
         if channel:
-            last_np_msg = self.server_specific_data[channel.guild]['last_np_msg']
-            if last_np_msg and last_np_msg.channel == channel:
-
-                async for lmsg in channel.history(limit=1):
-                    if lmsg != last_np_msg and last_np_msg:
-                        await self.safe_delete_message(last_np_msg)
-                        self.server_specific_data[channel.guild]['last_np_msg'] = None
-                    break  # This is probably redundant
+#             last_np_msg = self.server_specific_data[channel.guild]['last_np_msg']
+#             if last_np_msg and last_np_msg.channel == channel:
+# 
+#                 async for lmsg in channel.history(limit=1):
+#                     if lmsg != last_np_msg and last_np_msg:
+#                         await self.safe_delete_message(last_np_msg)
+#                         self.server_specific_data[channel.guild]['last_np_msg'] = None
+#                     break  # This is probably redundant
             from pprint import pprint
             pprint(vars(player))
             song_total = str(timedelta(seconds=entry.duration)).lstrip('0').lstrip(':')
@@ -504,10 +505,12 @@ class MusicBot(discord.Client):
                     vote_msg += "%s: %s\n"% (reactions[n], song_info.get('title', 'Untitled'))
                 newmsg += vote_msg
 
-            if self.server_specific_data[channel.guild]['last_np_msg']:
-                self.server_specific_data[channel.guild]['last_np_msg'] = await self.safe_edit_message(last_np_msg, newmsg, send_if_fail=True)
-            else:
-                self.server_specific_data[channel.guild]['last_np_msg'] = await self.safe_send_message(channel, newmsg)
+#             if self.server_specific_data[channel.guild]['last_np_msg']:
+#                 self.server_specific_data[channel.guild]['last_np_msg'] = await self.safe_edit_message(last_np_msg, newmsg, send_if_fail=True)
+#             else:
+#                 self.server_specific_data[channel.guild]['last_np_msg'] = await self.safe_send_message(channel, newmsg)
+
+            await self.update_now_playing_message(guild, newmsg, channel=channel)
 
             if self.is_voting:
                 reactions = []
@@ -515,7 +518,7 @@ class MusicBot(discord.Client):
                     reactions.append(u"%d\u20E3" % (n+1))
                 for r in reactions:
                     #await self.add_reaction(self.server_specific_data[channel.guild]['last_np_msg'], r)
-                    await self.server_specific_data[channel.guild]['last_np_msg'].add_reaction(r)
+                    await self.server_specific_data[guild]['last_np_msg'].add_reaction(r)
         else:
             log.debug("Error with np update")
             log.debug(channel)
@@ -1999,7 +2002,7 @@ class MusicBot(discord.Client):
 
         return Response("Oh well \N{SLIGHTLY FROWNING FACE}", delete_after=30)
 
-    async def cmd_np(self, player, channel, server, message):
+    async def cmd_np(self, player, channel, guild, message):
         """
         Usage:
             {command_prefix}np
