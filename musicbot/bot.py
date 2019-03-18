@@ -533,7 +533,8 @@ class MusicBot(discord.Client):
                 return
             elif user.id in self.votes.keys():
                 print("User already voted, switching vote")
-                await self.remove_reaction(np_msg, self.votes[user.id]['reaction'].emoji, user)
+                await np_msg.remove_reaction(self.votes[user.id]['reaction'].emoji, user)
+                #await self.remove_reaction(np_msg, self.votes[user.id]['reaction'].emoji, user)
                 self.votes.pop(user.id, None)
 
             print(reactions[reaction.emoji])
@@ -3082,8 +3083,10 @@ class MusicBot(discord.Client):
         if not player:
             return
 
+        log.debug("on voice state update checking states")
         if not member == self.user:  # if the user is not the bot
             if player.voice_client.channel != before.channel and player.voice_client.channel == after.channel:  # if the person joined
+                log.debug("someone joined")
                 if auto_paused and player.is_paused:
                     log.info(autopause_msg.format(
                         state = "Unpausing",
@@ -3094,6 +3097,7 @@ class MusicBot(discord.Client):
                     self.server_specific_data[player.voice_client.guild]['auto_paused'] = False
                     player.resume()
             elif player.voice_client.channel == before.channel and player.voice_client.channel != after.channel:
+                log.debug("someone left")
                 if len(player.voice_client.channel.members) == 1:
                     if not auto_paused and player.is_playing:
                         log.info(autopause_msg.format(
@@ -3106,6 +3110,7 @@ class MusicBot(discord.Client):
                         player.pause()
         else:
             if len(player.voice_client.channel.members) > 0:  # channel is not empty
+                log.debug("channel is not empty")
                 if auto_paused and player.is_paused:
                     log.info(autopause_msg.format(
                         state = "Unpausing",
